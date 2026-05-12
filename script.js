@@ -4,8 +4,8 @@ let selectedW = 512;
 let selectedH = 512;
 let selectedModel = 'flux';
 let gallery = [];
+let isGenerating = false;
 
-// ===== RANDOM PROMPTS =====
 const randomPrompts = [
   "a majestic snow leopard on Himalayan peaks, golden hour, cinematic",
   "ancient Mughal palace at sunset, reflections in water, hyperrealistic",
@@ -21,16 +21,14 @@ const randomPrompts = [
   "a samurai standing in a cherry blossom storm, ink painting"
 ];
 
-// ===== INIT =====
 document.addEventListener('DOMContentLoaded', () => {
   const textarea = document.getElementById('promptInput');
   textarea.addEventListener('input', () => {
     const len = textarea.value.length;
-    document.getElementById('charCount').textContent = `${len} / 500`;
+    document.getElementById('charCount').textContent = len + ' / 500';
     if (len > 500) textarea.value = textarea.value.substring(0, 500);
   });
 
-  // Style tags
   document.getElementById('styleGrid').querySelectorAll('.tag').forEach(tag => {
     tag.addEventListener('click', () => {
       document.getElementById('styleGrid').querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
@@ -39,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Size tags
   document.querySelectorAll('[data-w]').forEach(tag => {
     tag.addEventListener('click', () => {
       document.querySelectorAll('[data-w]').forEach(t => t.classList.remove('active'));
@@ -49,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Model tags
   document.querySelectorAll('[data-model]').forEach(tag => {
     tag.addEventListener('click', () => {
       document.querySelectorAll('[data-model]').forEach(t => t.classList.remove('active'));
@@ -58,13 +54,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Enter key to generate
   textarea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.ctrlKey) generate();
   });
 });
 
-// ===== RANDOM PROMPT =====
 function randomPrompt() {
   const r = randomPrompts[Math.floor(Math.random() * randomPrompts.length)];
   const ta = document.getElementById('promptInput');
@@ -72,7 +66,6 @@ function randomPrompt() {
   ta.dispatchEvent(new Event('input'));
 }
 
-// ===== USE SUGGESTION =====
 function useSug(el) {
   const ta = document.getElementById('promptInput');
   ta.value = el.textContent;
@@ -80,25 +73,34 @@ function useSug(el) {
   ta.focus();
 }
 
-// ===== GENERATE =====
-async function generate() {
+function resetButton() {
+  isGenerating = false;
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = false;
+  btn.classList.remove('loading');
+}
+
+function generate() {
+  if (isGenerating) return;
+
   const prompt = document.getElementById('promptInput').value.trim();
   if (!prompt) {
-    document.getElementById('promptInput').focus();
-    document.getElementById('promptInput').style.borderColor = '#ff6b6b';
-    setTimeout(() => document.getElementById('promptInput').style.borderColor = '', 1500);
+    const ta = document.getElementById('promptInput');
+    ta.focus();
+    ta.style.borderColor = '#ff6b6b';
+    setTimeout(() => { ta.style.borderColor = ''; }, 1500);
     return;
   }
 
+  isGenerating = true;
   const btn = document.getElementById('generateBtn');
   btn.disabled = true;
   btn.classList.add('loading');
 
   showLoading();
 
-  const fullPrompt = selectedStyle ? `${prompt}, ${selectedStyle}` : prompt;
+  const fullPrompt = selectedStyle ? (prompt + ', ' + selectedStyle) : prompt;
   const seed = Math.floor(Math.random() * 999999);
-
   const url = buildUrl(fullPrompt, seed);
 
   const messages = [
@@ -114,41 +116,38 @@ async function generate() {
     if (el) el.textContent = messages[msgIdx];
   }, 3000);
 
-  try {
-    const img = new Image();
-    await new Promise((resolve, reject) => {
-      img.onload = resolve;
-      img.onerror = reject;
-      img.src = url;
-      setTimeout(reject, 60000); // 60s timeout
-    });
-
+  const timeout = setTimeout(() => {
     clearInterval(msgInterval);
+    showError('Time out ho gaya. Dobara try karein.');
+    resetButton();
+  }, 60000);
+
+  const img = new Image();
+
+  img.onload = function() {
+    clearInterval(msgInterval);
+    clearTimeout(timeout);
     showResult(url, fullPrompt, seed);
     addToGallery(url, prompt);
-
-  } catch (err) {
-    clearInterval(msgInterval);
-    showError('Image generate nahi hui. Network check karein ya dobara try karein.');
-  } finally {
-    btn.disabled = false;
-    btn.classList.remove('loading');
-  }
-}
-
-// ===== BUILD URL =====
-function buildUrl(prompt, seed) {
-  const modelMap = {
-    'flux': 'flux',
-    'flux-realism': 'flux-realism',
-    'turbo': 'turbo'
+    resetButton();
   };
-  const model = modelMap[selectedModel] || 'flux';
-  const encoded = encodeURIComponent(prompt);
-  return `https://image.pollinations.ai/prompt/${encoded}?model=${model}&width=${selectedW}&height=${selectedH}&seed=${seed}&nologo=true&enhance=true`;
+
+  img.onerror = function() {
+    clearInterval(msgInterval);
+    clearTimeout(timeout);
+    showError('Image generate nahi hui. Dobara try karein.');
+    resetButton();
+  };
+
+  img.src = url;
 }
 
-// ===== UI STATES =====
+function buildUrl(prompt, seed) {
+  const model = selectedModel || 'flux';
+  const encoded = encodeURIComponent(prompt);
+  return 'https://image.pollinations.ai/prompt/' + encoded + '?model=' + model + '&width=' + selectedW + '&height=' + selectedH + '&seed=' + seed + '&nologo=true&enhance=true';
+}
+
 function showLoading() {
   document.getElementById('placeholder').style.display = 'none';
   document.getElementById('resultState').style.display = 'none';
@@ -166,10 +165,10 @@ function showResult(url, prompt, seed) {
 
   const dlBtn = document.getElementById('downloadBtn');
   dlBtn.href = url;
-  dlBtn.download = `imagine-ai-${seed}.jpg`;
+  dlBtn.download = 'imagine-ai-' + seed + '.jpg';
 
   document.getElementById('resultPromptText').textContent = prompt.substring(0, 60) + (prompt.length > 60 ? '...' : '');
-  document.getElementById('resultSeed').textContent = `Seed: ${seed}`;
+  document.getElementById('resultSeed').textContent = 'Seed: ' + seed;
 
   document.getElementById('resultState').style.display = 'block';
   document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -183,9 +182,8 @@ function showError(msg) {
   document.getElementById('errorState').style.display = 'block';
 }
 
-// ===== GALLERY =====
 function addToGallery(url, prompt) {
-  gallery.unshift({ url, prompt });
+  gallery.unshift({ url: url, prompt: prompt });
   if (gallery.length > 12) gallery.pop();
   renderGallery();
 }
@@ -196,12 +194,12 @@ function renderGallery() {
     grid.innerHTML = '<p class="gallery-empty">Generate karne ke baad images yahan save hongi</p>';
     return;
   }
-  grid.innerHTML = gallery.map(item => `
-    <div class="gallery-item" onclick="viewGalleryItem('${item.url}')">
-      <img src="${item.url}" alt="Generated image" loading="lazy" />
-      <div class="gallery-overlay"><p>${item.prompt}</p></div>
-    </div>
-  `).join('');
+  grid.innerHTML = gallery.map(function(item) {
+    return '<div class="gallery-item" onclick="viewGalleryItem(\'' + item.url + '\')">' +
+      '<img src="' + item.url + '" alt="Generated image" loading="lazy" />' +
+      '<div class="gallery-overlay"><p>' + item.prompt + '</p></div>' +
+      '</div>';
+  }).join('');
 }
 
 function viewGalleryItem(url) {
